@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>बाज़ार AI - Handicraft & General Store</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: "'Noto Sans', 'Segoe UI', sans-serif";
+        background: var(--bg);
+        color: var(--ink);
+      }
+      :root {
+        --bg: #faf8f3;
+        --card: #fff9f0;
+        --ink: #1c0f00;
+        --muted: #8b7355;
+        --border: #e8d5c4;
+        --saffron: #d4963b;
+        --terracotta: #c85a3a;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c0f00;
+          --card: #2d1f1a;
+          --ink: #f5f0eb;
+          --muted: #a89080;
+          --border: #4a3830;
+          --saffron: #d4963b;
+          --terracotta: #c85a3a;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
