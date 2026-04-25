@@ -15,6 +15,39 @@ import { useSetting, SETTING_AUTO_CLEAN } from "../lib/useSetting";
 
 type ProductData = Omit<Product, "id">;
 
+const camBtnStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.15)",
+  border: "1px solid rgba(255,255,255,0.3)",
+  borderRadius: 8,
+  color: "#e8c080",
+  fontSize: "0.75rem",
+  fontWeight: 600,
+  padding: "6px 12px",
+  cursor: "pointer",
+  transition: "background 0.2s",
+};
+
+const miniBtn: React.CSSProperties = {
+  background: "rgba(255,255,255,0.1)",
+  border: "1px solid rgba(255,255,255,0.2)",
+  borderRadius: 6,
+  color: "#e8c080",
+  fontSize: "0.7rem",
+  fontWeight: 600,
+  padding: "4px 8px",
+  cursor: "pointer",
+};
+
+const spinnerStyle: React.CSSProperties = {
+  display: "inline-block",
+  width: 14,
+  height: 14,
+  borderRadius: "50%",
+  border: "2px solid rgba(255,255,255,0.2)",
+  borderTopColor: "var(--saffron)",
+  animation: "spin 0.8s linear infinite",
+};
+
 export default function AddProduct() {
   const { authed, login, logout, error: authError } = useAdminAuth();
   const { lang, setLang } = useLanguage();
