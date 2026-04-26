@@ -388,7 +388,201 @@ export default function AddProduct() {
         </div>
 
         {/* ANALYSE BUTTON */}
+        {captured && !product && (
+          <div style={{
+            background: "var(--card)", border: "1.5px solid var(--border)",
+            borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12,
+          }}>
+            <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: "1rem", color: "var(--ink)", marginBottom: 4 }}>
+              🤖 AI Analysis
+            </h3>
+            <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: 8 }}>
+              Analyze product using AI (English/Spanish output)
+            </p>
+            <button
+              onClick={handleAnalyse}
+              disabled={analysing}
+              style={{
+                background: analysing ? "#d6c4a4" : "var(--saffron)",
+                border: "none", borderRadius: 8, color: "#fff",
+                fontSize: "0.9rem", fontWeight: 600, padding: "12px 16px",
+                cursor: analysing ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}
+            >
+              {analysing ? (
+                <>
+                  <div style={{ ...spinnerStyle, borderTopColor: "#fff" }} />
+                  Analyzing with AI...
+                </>
+              ) : (
+                <>🔍 Analyze Product</>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* PRODUCT FORM */}
+        {product && (
+          <div style={{
+            background: "var(--card)", border: "1.5px solid var(--border)",
+            borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 16,
+          }}>
+            <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: "1rem", color: "var(--ink)", marginBottom: 4 }}>
+              📝 Product Details
+            </h3>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Field
+                label="Product Name"
+                value={product.name}
+                onChange={v => updateField("name", v)}
+                placeholder="Handcrafted vase"
+              />
+
+              <Field
+                label="Description"
+                value={product.description}
+                onChange={v => updateField("description", v)}
+                multiline
+                placeholder="Beautiful handcrafted ceramic vase with traditional Moroccan patterns"
+              />
+
+              <Field
+                label="Category"
+                value={product.category}
+                onChange={v => updateField("category", v)}
+                placeholder="Handicraft"
+              />
+
+              <Field
+                label="Dimensions"
+                value={product.dimensions}
+                onChange={v => updateField("dimensions", v)}
+                placeholder="15cm x 10cm x 8cm"
+              />
+
+              <Field
+                label="Price Range (INR)"
+                value={product.price_inr}
+                onChange={v => updateField("price_inr", v)}
+                placeholder="200-500"
+              />
+
+              <Field
+                label="Tags (comma-separated)"
+                value={product.tags.join(", ")}
+                onChange={v => updateField("tags", v.split(",").map((t: string) => t.trim()))}
+                placeholder="handmade, ceramic, moroccan, traditional"
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={handlePost}
+                disabled={posting}
+                style={{
+                  flex: 1,
+                  background: posting ? "#d6c4a4" : "var(--saffron)",
+                  border: "none", borderRadius: 8, color: "#fff",
+                  fontSize: "0.9rem", fontWeight: 600, padding: "12px 16px",
+                  cursor: posting ? "not-allowed" : "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}
+              >
+                {posting ? (
+                  <>
+                    <div style={{ ...spinnerStyle, borderTopColor: "#fff" }} />
+                    Posting...
+                  </>
+                ) : (
+                  <>📤 Post to Shop</>
+                )}
+              </button>
+
+              {!posted && (
+                <button
+                  onClick={() => setProduct(null)}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--border)", borderRadius: 8,
+                    color: "var(--muted)", fontSize: "0.9rem", fontWeight: 600,
+                    padding: "12px 16px", cursor: "pointer",
+                  }}
+                >
+                  ✏️ Edit
+                </button>
+              )}
+            </div>
+
+            {posted && (
+              <div style={{
+                padding: "12px 16px",
+                background: "#f0f8e7", border: "1px solid #4caf50",
+                borderRadius: 8, color: "#2e7d32", textAlign: "center",
+              }}>
+                ✅ Product posted successfully!
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ERROR DISPLAY */}
+        {error && (
+          <div style={{
+            background: "#ffebee", border: "1px solid #f44336",
+            borderRadius: 8, padding: "12px 16px", color: "#c62828",
+          }}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        <Toast ref={toastRef} />
       </main>
     </Layout>
+  );
+}
+
+function Field({
+  label, value, onChange, multiline, placeholder
+}: {
+  label: string;
+  value: any;
+  onChange: (v: any) => void;
+  multiline?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label style={{
+        display: "block", fontSize: "0.8rem", fontWeight: 600,
+        color: "var(--ink)", marginBottom: 4,
+      }}>
+        {label}
+      </label>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{
+            width: "100%", padding: "8px 12px", borderRadius: 6,
+            border: "1px solid var(--border)", fontSize: "0.9rem",
+            minHeight: 60, resize: "vertical",
+          }}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{
+            width: "100%", padding: "8px 12px", borderRadius: 6,
+            border: "1px solid var(--border)", fontSize: "0.9rem",
+          }}
+        />
+      )}
+    </div>
   );
 }

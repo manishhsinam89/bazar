@@ -26,3 +26,10 @@ export async function getProducts(): Promise<Product[]> {
   if (!response.ok) throw new Error("Failed to fetch products");
   return response.json();
 }
+
+export async function deleteProduct(productId: string): Promise<void> {
+  const response = await fetch(`/api/products/${productId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error("Failed to delete product");
+}
