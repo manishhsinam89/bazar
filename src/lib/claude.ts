@@ -12,7 +12,33 @@ export async function analyzeProduct(
   mime: string,
   lang: string
 ): Promise<AnalyzedProduct> {
-  // Option 1: Use Hugging Face Serverless Inference Endpoint (if configured)
+  // Option 1: Use Local GPU API (FastAPI/Ollama backend)
+  const localAPI = (import.meta as any).env?.VITE_LOCAL_API;
+  if (localAPI) {
+    try {
+      const response = await fetch(`${localAPI}/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image: `data:${mime};base64,${base64}`,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const caption = result.caption || result.generated_text || result.output?.[0];
+        if (caption) {
+          return parseAnalysis(caption, lang);
+        }
+      }
+    } catch (err) {
+      console.warn("Local API failed, trying online services", err);
+    }
+  }
+
+  // Option 2: Use Hugging Face Serverless Inference Endpoint (if configured)
   const hfEndpoint = (import.meta as any).env?.VITE_HF_ENDPOINT;
   const hfToken = (import.meta as any).env?.VITE_HF_TOKEN;
   
@@ -37,11 +63,11 @@ export async function analyzeProduct(
         }
       }
     } catch (err) {
-      console.warn("HF Serverless Endpoint failed, using offline analysis", err);
+      console.warn("HF Serverless Endpoint failed, trying next option", err);
     }
   }
 
-  // Option 2: Use Replicate API (free alternative)
+  // Option 3: Use Replicate API (free alternative)
   const replicateToken = (import.meta as any).env?.VITE_REPLICATE_TOKEN;
   if (replicateToken) {
     try {
