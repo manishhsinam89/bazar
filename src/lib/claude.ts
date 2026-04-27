@@ -141,30 +141,48 @@ export async function analyzeProduct(base64: string, _mime: string, _lang?: stri
   }
 }
 
-// Legacy Gemini fallback (kept for users who already have a Gemini key)
+// Gemini via direct REST API (no SDK dependency)
 async function geminiLegacy(base64: string, mime: string) {
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
   try {
-    const { GoogleGenerativeAI } = await import("@google/generative-ai");
-    const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
-    const result = await model.generateContent([
-      "Identify product: Name, Category, Description.",
-      { inlineData: { data: base64.split(",").pop()!, mimeType: mime } },
-    ]);
-    const text = result.response.text();
-    const lines = text.split("\n");
+    const raw = base64.includes(",") ? base64.split(",")[1] : base64;
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: "Identify this product. Reply with exactly 3 lines:\nName: <product name>\nCategory: <category>\nDescription: <short description>" },
+              { inlineData: { mimeType: mime, data: raw } },
+            ],
+          }],
+        }),
+      }
+    );
+    if (!res.ok) {
+      const errBody = await res.text();
+      return { name: "Gemini Error", description: `API ${res.status}: ${errBody.slice(0, 80)}` };
+    }
+    const json = await res.json();
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const lines = text.split("\n").filter((l: string) => l.trim());
+    const nameLine = lines.find((l: string) => /^name:/i.test(l)) || lines[0] || "";
+    const descLine = lines.find((l: string) => /^desc/i.test(l)) || lines[2] || "";
+    const catLine = lines.find((l: string) => /^cat/i.test(l)) || lines[1] || "";
     return {
-      name: lines[0]?.replace(/Name: /i, "").trim() || "Marketplace Item",
-      description: text.slice(0, 150),
-      category: "Handicraft",
+      name: nameLine.replace(/^name:\s*/i, "").trim() || "Marketplace Item",
+      description: descLine.replace(/^description:\s*/i, "").trim() || text.slice(0, 150),
+      category: catLine.replace(/^category:\s*/i, "").trim() || "Handicraft",
       dimensions: "Standard",
       price_inr: "500",
       tags: ["handmade"],
     };
   } catch (err: any) {
     return {
-      name: "Server Busy",
-      description: `Google error: ${err.message?.slice(0, 50) || "Unknown"}. Try again in 10 mins.`,
+      name: "Gemini Error",
+      description: `Network error: ${err.message?.slice(0, 80) || "Unknown"}. Check your connection.`,
     };
   }
 }
