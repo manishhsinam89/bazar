@@ -58,6 +58,24 @@ export async function getProducts(): Promise<Product[]> {
   return readLocal();
 }
 
+export async function updateProduct(productId: string, fields: Partial<Omit<Product, "id">>): Promise<void> {
+  if (supabase) {
+    const row: any = {};
+    if (fields.name !== undefined) row.name = fields.name;
+    if (fields.description !== undefined) row.description = fields.description;
+    if (fields.category !== undefined) row.category = fields.category;
+    if (fields.dimensions !== undefined) row.dimensions = fields.dimensions;
+    if (fields.price_inr !== undefined) row.price_inr = fields.price_inr;
+    if (fields.tags !== undefined) row.tags = fields.tags;
+    const { error } = await supabase.from("products").update(row).eq("id", productId);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const all = readLocal();
+  const idx = all.findIndex(p => p.id === productId);
+  if (idx >= 0) { Object.assign(all[idx], fields); writeLocal(all); }
+}
+
 export async function deleteProduct(productId: string): Promise<void> {
   if (supabase) {
     const { error } = await supabase.from("products").delete().eq("id", productId);
