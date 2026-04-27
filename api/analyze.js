@@ -1,190 +1,159 @@
-import https from "node:https";
+export const config = { runtime: "edge" };
 
-function httpsPost(url, headers, body) {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const opts = {
-      hostname: parsed.hostname,
-      path: parsed.pathname + parsed.search,
-      method: "POST",
-      headers: { ...headers, "Content-Length": body.length },
-    };
-    const req = https.request(opts, (resp) => {
-      let data = "";
-      resp.on("data", (chunk) => (data += chunk));
-      resp.on("end", () => {
-        resolve({ status: resp.statusCode, body: data });
-      });
-    });
-    req.on("error", reject);
-    req.write(body);
-    req.end();
-  });
-}
+const HF_MODELS = [
+  "Salesforce/blip-image-captioning-large",
+  "Salesforce/blip-image-captioning-base",
+  "nlpconnect/vit-gpt2-image-captioning",
+];
 
-export default async function handler(req, res) {
+const CATEGORY_MAP = {
+  bag: "Bags & Accessories", shoe: "Footwear", dress: "Clothing", shirt: "Clothing",
+  necklace: "Jewelry", bracelet: "Jewelry", ring: "Jewelry", earring: "Jewelry",
+  pot: "Pottery", vase: "Pottery", bowl: "Pottery", plate: "Kitchenware",
+  rug: "Textiles", carpet: "Textiles", scarf: "Textiles", fabric: "Textiles",
+  lamp: "Home Décor", candle: "Home Décor", basket: "Handicraft", wood: "Woodwork",
+};
+
+export default async function handler(request) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
   try {
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed" });
+    const { image, mime, modelId } = await request.json();
+    if (!image) {
+      return Response.json({ error: "No image provided" }, { status: 400 });
     }
 
     const HF_TOKEN = process.env.VITE_HF_TOKEN || process.env.HF_TOKEN;
     const GEMINI_KEY = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
     if (!HF_TOKEN && !GEMINI_KEY) {
-      return res.status(500).json({ error: "No AI tokens configured. Set VITE_HF_TOKEN or VITE_GEMINI_API_KEY in Vercel env vars." });
+      return Response.json({ error: "No AI tokens configured" }, { status: 500 });
     }
 
-    // Vercel auto-parses JSON body, but handle both cases
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const { image, mime, modelId } = body || {};
-    if (!image) {
-      return res.status(400).json({ error: "No image provided", receivedKeys: Object.keys(body || {}) });
+    const binaryStr = atob(image);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+    // --- Google route ---
+    if (modelId?.startsWith("google/") && GEMINI_KEY) {
+      return geminiAnalyze(image, mime, GEMINI_KEY);
     }
 
-    const imageBytes = Buffer.from(image, "base64");
+    // --- HF route ---
+    if (HF_TOKEN) {
+      const models = modelId && !modelId.startsWith("google/") ? [modelId] : HF_MODELS;
+      let lastErr = "";
 
-  // --- Google route ---
-  if (modelId?.startsWith("google/") && GEMINI_KEY) {
-    return await geminiAnalyze(res, image, mime, GEMINI_KEY);
-  }
+      for (const model of models) {
+        try {
+          const url = `https://api-inference.huggingface.co/models/${model}`;
+          console.log("HF request:", url);
 
-  // --- HF route ---
-  if (HF_TOKEN) {
-    const HF_MODELS = [
-      "Salesforce/blip-image-captioning-large",
-      "Salesforce/blip-image-captioning-base",
-      "nlpconnect/vit-gpt2-image-captioning",
-    ];
-    const models = modelId && !modelId.startsWith("google/") ? [modelId] : HF_MODELS;
-    let lastHfError = "";
+          const hfRes = await fetch(url, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${HF_TOKEN}`,
+              "x-wait-for-model": "true",
+            },
+            body: bytes,
+          });
 
-    for (const model of models) {
-      try {
-        console.log(`Trying HF model: ${model}`);
-        const hfUrl = `https://api-inference.huggingface.co/models/${model}`;
-        console.log(`HF URL: ${hfUrl}`);
-        const hfRes = await httpsPost(hfUrl, {
-          Authorization: `Bearer ${HF_TOKEN}`,
-          "x-wait-for-model": "true",
-          "Content-Type": "application/octet-stream",
-        }, imageBytes);
+          const bodyText = await hfRes.text();
+          console.log(`HF ${model}: ${hfRes.status} ${bodyText.slice(0, 200)}`);
 
-        console.log(`HF ${model} status: ${hfRes.status}, body: ${hfRes.body.slice(0, 200)}`);
+          if (hfRes.status !== 200) {
+            lastErr = `${model}: ${hfRes.status} ${bodyText.slice(0, 100)}`;
+            continue;
+          }
 
-        if (hfRes.status !== 200) {
-          lastHfError = `${model}: HTTP ${hfRes.status} - ${hfRes.body.slice(0, 150)}`;
-          console.warn("HF error:", lastHfError);
+          const data = JSON.parse(bodyText);
+          const caption = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
+          if (caption) {
+            return Response.json(parseCaption(caption));
+          }
+          if (data?.error) {
+            lastErr = `${model}: ${data.error}`;
+            continue;
+          }
+          lastErr = `${model}: no caption`;
+        } catch (e) {
+          lastErr = `${model}: ${e.message}`;
           continue;
         }
+      }
 
-        const data = JSON.parse(hfRes.body);
-        console.log(`HF ${model} response:`, JSON.stringify(data).slice(0, 300));
-        let caption = "";
-        if (Array.isArray(data) && data[0]?.generated_text) {
-          caption = data[0].generated_text;
-        } else if (data?.generated_text) {
-          caption = data.generated_text;
-        } else if (data?.error) {
-          lastHfError = `${model}: ${data.error}`;
-          console.warn("HF model error:", lastHfError);
-          continue;
-        }
-
-        if (caption) {
-          console.log(`HF success: ${model} -> "${caption.slice(0, 80)}"`);
-          return res.status(200).json(parseCaption(caption));
-        }
-        lastHfError = `${model}: no caption in response`;
-      } catch (e) {
-        lastHfError = `${model}: ${e.message}`;
-        console.warn(`HF ${model} fetch error:`, e.message);
-        continue;
+      if (!modelId?.startsWith("google/")) {
+        return Response.json({
+          name: "HF Analysis Failed",
+          description: `${lastErr}. Try Gemini or retry in 30s.`,
+          category: "Handicraft", dimensions: "Standard", price_inr: "500", tags: ["handmade"],
+        }, { status: 502 });
       }
     }
 
-    // Don't fall through to Gemini silently — return HF error
-    if (!modelId?.startsWith("google/")) {
-      return res.status(502).json({
-        name: "HF Analysis Failed",
-        description: `HF error: ${lastHfError}. Try selecting Gemini from the dropdown, or retry in 30s.`,
-      });
-    }
-  }
+    // Gemini fallback
+    if (GEMINI_KEY) return geminiAnalyze(image, mime, GEMINI_KEY);
 
-  // --- Gemini fallback (only if explicitly chosen or no HF token) ---
-  if (GEMINI_KEY) {
-    return await geminiAnalyze(res, image, mime, GEMINI_KEY);
-  }
+    return Response.json({ name: "No AI", description: "Configure tokens" }, { status: 500 });
 
-  return res.status(502).json({
-    name: "Analysis Unavailable",
-    description: "All AI models failed. Try again later.",
-  });
   } catch (e) {
-    console.error("analyze handler crash:", e);
-    return res.status(500).json({
+    return Response.json({
       name: "Server Error",
-      description: `Internal error: ${e.message?.slice(0, 100) || "Unknown"}`,
-    });
+      description: `${e.message?.slice(0, 120)}`,
+      category: "Handicraft", dimensions: "Standard", price_inr: "500", tags: ["handmade"],
+    }, { status: 500 });
   }
 }
 
-async function geminiAnalyze(res, base64, mime, key) {
+async function geminiAnalyze(base64, mime, key) {
   try {
-    const gBody = JSON.stringify({
-      contents: [{
-        parts: [
-          { text: "Identify this product. Reply with exactly 3 lines:\nName: <product name>\nCategory: <category>\nDescription: <short description>" },
-          { inlineData: { mimeType: mime || "image/jpeg", data: base64 } },
-        ],
-      }],
-    });
-    const gRes = await httpsPost(
+    const gRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-      { "Content-Type": "application/json" },
-      Buffer.from(gBody)
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { text: "Identify this product. Reply with exactly 3 lines:\nName: <name>\nCategory: <category>\nDescription: <description>" },
+            { inlineData: { mimeType: mime || "image/jpeg", data: base64 } },
+          ]}],
+        }),
+      }
     );
+    const bodyText = await gRes.text();
     if (gRes.status !== 200) {
-      return res.status(gRes.status).json({
-        name: "Gemini Error",
-        description: `API ${gRes.status}: ${gRes.body.slice(0, 100)}`,
-      });
+      return Response.json({
+        name: "Gemini Error", description: `API ${gRes.status}: ${bodyText.slice(0, 100)}`,
+        category: "Handicraft", dimensions: "Standard", price_inr: "500", tags: ["handmade"],
+      }, { status: gRes.status });
     }
-    const json = JSON.parse(gRes.body);
+    const json = JSON.parse(bodyText);
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const lines = text.split("\n").filter((l) => l.trim());
-    const nameLine = lines.find((l) => /^name:/i.test(l)) || lines[0] || "";
-    const descLine = lines.find((l) => /^desc/i.test(l)) || lines[2] || "";
-    const catLine = lines.find((l) => /^cat/i.test(l)) || lines[1] || "";
-    return res.status(200).json({
-      name: nameLine.replace(/^name:\s*/i, "").trim() || "Marketplace Item",
-      description: descLine.replace(/^description:\s*/i, "").trim() || text.slice(0, 150),
-      category: catLine.replace(/^category:\s*/i, "").trim() || "Handicraft",
+    const lines = text.split("\n").filter(l => l.trim());
+    const get = (rx) => (lines.find(l => rx.test(l)) || "").replace(rx, "").trim();
+    return Response.json({
+      name: get(/^name:\s*/i) || lines[0]?.trim() || "Marketplace Item",
+      description: get(/^description:\s*/i) || text.slice(0, 150),
+      category: get(/^category:\s*/i) || "Handicraft",
       dimensions: "Standard",
       price_inr: "500",
       tags: ["handmade"],
     });
   } catch (e) {
-    return res.status(502).json({
-      name: "Gemini Error",
-      description: `Network error: ${e.message?.slice(0, 80)}`,
-    });
+    return Response.json({
+      name: "Gemini Error", description: `Network: ${e.message?.slice(0, 80)}`,
+      category: "Handicraft", dimensions: "Standard", price_inr: "500", tags: ["handmade"],
+    }, { status: 502 });
   }
 }
 
-function parseCaption(caption) {
-  const c = caption.trim();
+function parseCaption(c) {
+  c = c.trim();
   const lower = c.toLowerCase();
-  const categoryMap = {
-    bag: "Bags & Accessories", shoe: "Footwear", dress: "Clothing", shirt: "Clothing",
-    necklace: "Jewelry", bracelet: "Jewelry", ring: "Jewelry", earring: "Jewelry",
-    pot: "Pottery", vase: "Pottery", bowl: "Pottery", plate: "Kitchenware",
-    rug: "Textiles", carpet: "Textiles", scarf: "Textiles", fabric: "Textiles",
-    lamp: "Home Décor", candle: "Home Décor", basket: "Handicraft", wood: "Woodwork",
-  };
   let category = "Handicraft";
-  for (const [kw, cat] of Object.entries(categoryMap)) {
+  for (const [kw, cat] of Object.entries(CATEGORY_MAP)) {
     if (lower.includes(kw)) { category = cat; break; }
   }
   const name = c.length > 60 ? c.slice(0, 57) + "…" : c || "Marketplace Item";
