@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { analyzeProduct } from "../lib/claude";
+import { analyzeProduct, AI_MODELS, AI_MODEL_AUTO } from "../lib/claude";
 import { addProduct, type Product } from "../lib/api";
 import { Toast, type ToastHandle } from "../components/Toast";
 import Layout from "../components/Layout";
@@ -69,6 +69,7 @@ export default function AddProduct() {
   const [posted, setPosted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [product, setProduct] = useState<ProductData | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>(AI_MODEL_AUTO);
 
   const processNewPhoto = useCallback(async (b64: string, mime: string) => {
     setRawBase64(b64);
@@ -212,7 +213,7 @@ export default function AddProduct() {
     setProduct(null);
     setPosted(false);
     try {
-      const result = await analyzeProduct(imageBase64, imageMime, lang);
+      const result = await analyzeProduct(imageBase64, imageMime, lang, selectedModel === AI_MODEL_AUTO ? undefined : selectedModel);
       setProduct({ ...result, image: imageBase64, imageMime, postedAt: new Date().toISOString() });
     } catch (err: any) {
       setError("Analysis failed: " + err.message + ". You can still post manually.");
@@ -397,8 +398,29 @@ export default function AddProduct() {
               🤖 AI Analysis
             </h3>
             <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: 8 }}>
-              Analyze product using AI (English/Spanish output)
+              Choose an AI model, then analyze your product.
             </p>
+
+            <select
+              value={selectedModel}
+              onChange={e => setSelectedModel(e.target.value)}
+              disabled={analysing}
+              style={{
+                width: "100%", padding: "8px 12px", borderRadius: 6,
+                border: "1px solid var(--border)", fontSize: "0.82rem",
+                background: "var(--card)", color: "var(--ink)",
+                cursor: analysing ? "not-allowed" : "pointer",
+                marginBottom: 4,
+              }}
+            >
+              <option value={AI_MODEL_AUTO}>🔄 Auto (try all HF models)</option>
+              {AI_MODELS.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.provider === "google" ? "🟡" : "🤗"} {m.label}
+                </option>
+              ))}
+            </select>
+
             <button
               onClick={handleAnalyse}
               disabled={analysing}
