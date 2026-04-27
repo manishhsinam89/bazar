@@ -15,7 +15,7 @@ export async function analyzeProduct(
   lang: string
 ): Promise<AnalyzedProduct> {
   // 1. Try Google Gemini (The Free Option)
-  const geminiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (geminiKey) {
     try {
       const genAI = new GoogleGenerativeAI(geminiKey);
