@@ -23,12 +23,15 @@ const HF_MODELS = [
   "nlpconnect/vit-gpt2-image-captioning",
 ];
 
+let _lastHfError = "";
+
 async function hfImageToText(token: string, imageBytes: Uint8Array, models?: string[]): Promise<string> {
   const blob = new Blob([imageBytes.buffer as ArrayBuffer]);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
-    "x-wait-for-model": "true",          // tells HF to wait for cold models instead of 503
+    "x-wait-for-model": "true",
   };
+  _lastHfError = "";
   for (const model of (models ?? HF_MODELS)) {
     try {
       const res = await fetch(
@@ -36,15 +39,19 @@ async function hfImageToText(token: string, imageBytes: Uint8Array, models?: str
         { method: "POST", headers, body: blob }
       );
       if (!res.ok) {
-        // Log for debugging, skip to next model
-        console.warn(`HF ${model}: ${res.status} ${await res.text().catch(() => "")}`);
+        const errText = await res.text().catch(() => "");
+        _lastHfError = `${model}: ${res.status} ${errText.slice(0, 100)}`;
+        console.warn("HF error:", _lastHfError);
         continue;
       }
       const data = await res.json();
+      console.log("HF response:", model, JSON.stringify(data).slice(0, 200));
       const caption = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
       if (caption) return caption;
+      _lastHfError = `${model}: unexpected response format`;
     } catch (e: any) {
-      console.warn(`HF ${model} fetch error:`, e.message);
+      _lastHfError = `${model}: ${e.message}`;
+      console.warn("HF fetch error:", _lastHfError);
       continue;
     }
   }
@@ -113,9 +120,14 @@ export async function analyzeProduct(base64: string, _mime: string, _lang?: stri
     }
 
     if (!caption) {
+      // Auto-fallback to Gemini if available
+      if (import.meta.env.VITE_GEMINI_API_KEY) {
+        console.warn("HF failed, falling back to Gemini. Last HF error:", _lastHfError);
+        return geminiLegacy(base64, _mime);
+      }
       return {
         name: "Analysis Unavailable",
-        description: "HF models are loading. Please try again in 30 seconds.",
+        description: `All HF models failed. Last error: ${_lastHfError || "No response"}. Open browser console (F12) for details.`,
       };
     }
     return parseCaption(caption);
