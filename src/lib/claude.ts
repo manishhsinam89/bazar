@@ -11,7 +11,7 @@ export const AI_MODELS: AIModel[] = [
   { id: "Salesforce/blip-image-captioning-large", label: "BLIP Large (HF)", provider: "huggingface" },
   { id: "Salesforce/blip-image-captioning-base", label: "BLIP Base (HF)", provider: "huggingface" },
   { id: "nlpconnect/vit-gpt2-image-captioning", label: "ViT-GPT2 (HF)", provider: "huggingface" },
-  { id: "google/gemini-1.5-flash-8b", label: "Gemini Flash 8B (Google)", provider: "google" },
+  { id: "google/gemini-2.0-flash-lite", label: "Gemini 2.0 Flash Lite (Google)", provider: "google" },
 ];
 
 /** "auto" tries all HF models in order */
@@ -36,18 +36,21 @@ async function hfImageToText(token: string, imageBytes: Uint8Array, models?: str
         }
       );
       if (res.status === 503) {
-        // Model is loading – wait and retry once
+        // Model is loading – wait and retry up to 2 times
         const info = await res.json().catch(() => ({}));
-        const wait = Math.min((info.estimated_time ?? 20) * 1000, 30000);
-        await new Promise(r => setTimeout(r, wait));
-        const retry = await fetch(
-          `https://api-inference.huggingface.co/models/${model}`,
-          { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: blob }
-        );
-        if (retry.ok) {
-          const data = await retry.json();
-          const caption = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
-          if (caption) return caption;
+        const wait = Math.min((info.estimated_time ?? 20) * 1000, 45000);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await new Promise(r => setTimeout(r, wait));
+          const retry = await fetch(
+            `https://api-inference.huggingface.co/models/${model}`,
+            { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: blob }
+          );
+          if (retry.ok) {
+            const data = await retry.json();
+            const caption = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
+            if (caption) return caption;
+          }
+          if (retry.status !== 503) break;
         }
         continue;
       }
@@ -143,7 +146,7 @@ async function geminiLegacy(base64: string, mime: string) {
   try {
     const { GoogleGenerativeAI } = await import("@google/generative-ai");
     const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-8b" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
     const result = await model.generateContent([
       "Identify product: Name, Category, Description.",
       { inlineData: { data: base64.split(",").pop()!, mimeType: mime } },
