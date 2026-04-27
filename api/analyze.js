@@ -1,3 +1,27 @@
+import https from "node:https";
+
+function httpsPost(url, headers, body) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const opts = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: "POST",
+      headers: { ...headers, "Content-Length": body.length },
+    };
+    const req = https.request(opts, (resp) => {
+      let data = "";
+      resp.on("data", (chunk) => (data += chunk));
+      resp.on("end", () => {
+        resolve({ status: resp.statusCode, body: data });
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") {
@@ -38,26 +62,23 @@ export default async function handler(req, res) {
     for (const model of models) {
       try {
         console.log(`Trying HF model: ${model}`);
-        const hfRes = await fetch(
-          `https://api-inference.huggingface.co/models/${model}`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${HF_TOKEN}`,
-              "x-wait-for-model": "true",
-            },
-            body: imageBytes,
-          }
-        );
+        const hfUrl = `https://api-inference.huggingface.co/models/${model}`;
+        console.log(`HF URL: ${hfUrl}`);
+        const hfRes = await httpsPost(hfUrl, {
+          Authorization: `Bearer ${HF_TOKEN}`,
+          "x-wait-for-model": "true",
+          "Content-Type": "application/octet-stream",
+        }, imageBytes);
 
-        if (!hfRes.ok) {
-          const errText = await hfRes.text().catch(() => "");
-          lastHfError = `${model}: HTTP ${hfRes.status} - ${errText.slice(0, 150)}`;
+        console.log(`HF ${model} status: ${hfRes.status}, body: ${hfRes.body.slice(0, 200)}`);
+
+        if (hfRes.status !== 200) {
+          lastHfError = `${model}: HTTP ${hfRes.status} - ${hfRes.body.slice(0, 150)}`;
           console.warn("HF error:", lastHfError);
           continue;
         }
 
-        const data = await hfRes.json();
+        const data = JSON.parse(hfRes.body);
         console.log(`HF ${model} response:`, JSON.stringify(data).slice(0, 300));
         let caption = "";
         if (Array.isArray(data) && data[0]?.generated_text) {
@@ -111,29 +132,26 @@ export default async function handler(req, res) {
 
 async function geminiAnalyze(res, base64, mime, key) {
   try {
-    const gRes = await fetch(
+    const gBody = JSON.stringify({
+      contents: [{
+        parts: [
+          { text: "Identify this product. Reply with exactly 3 lines:\nName: <product name>\nCategory: <category>\nDescription: <short description>" },
+          { inlineData: { mimeType: mime || "image/jpeg", data: base64 } },
+        ],
+      }],
+    });
+    const gRes = await httpsPost(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: "Identify this product. Reply with exactly 3 lines:\nName: <product name>\nCategory: <category>\nDescription: <short description>" },
-              { inlineData: { mimeType: mime || "image/jpeg", data: base64 } },
-            ],
-          }],
-        }),
-      }
+      { "Content-Type": "application/json" },
+      Buffer.from(gBody)
     );
-    if (!gRes.ok) {
-      const errBody = await gRes.text();
+    if (gRes.status !== 200) {
       return res.status(gRes.status).json({
         name: "Gemini Error",
-        description: `API ${gRes.status}: ${errBody.slice(0, 100)}`,
+        description: `API ${gRes.status}: ${gRes.body.slice(0, 100)}`,
       });
     }
-    const json = await gRes.json();
+    const json = JSON.parse(gRes.body);
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const lines = text.split("\n").filter((l) => l.trim());
     const nameLine = lines.find((l) => /^name:/i.test(l)) || lines[0] || "";
