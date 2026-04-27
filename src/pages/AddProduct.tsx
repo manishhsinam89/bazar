@@ -214,7 +214,15 @@ export default function AddProduct() {
     setPosted(false);
     try {
       const result = await analyzeProduct(imageBase64, imageMime, lang, selectedModel === AI_MODEL_AUTO ? undefined : selectedModel);
-      setProduct({ ...result, image: imageBase64, imageMime, postedAt: new Date().toISOString() });
+      setProduct({
+        name: result.name || "Product",
+        description: result.description || "Handcrafted item",
+        category: result.category || "Handicraft",
+        dimensions: result.dimensions || "Standard",
+        price_inr: result.price_inr || "200–500",
+        tags: Array.isArray(result.tags) ? result.tags : ["handmade"],
+        image: imageBase64, imageMime, postedAt: new Date().toISOString(),
+      });
     } catch (err: any) {
       setError("Analysis failed: " + err.message + ". You can still post manually.");
       setProduct({
