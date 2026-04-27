@@ -1,21 +1,24 @@
-module.exports = async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+export default async function handler(req, res) {
+  try {
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-  const HF_TOKEN = process.env.VITE_HF_TOKEN || process.env.HF_TOKEN;
-  const GEMINI_KEY = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    const HF_TOKEN = process.env.VITE_HF_TOKEN || process.env.HF_TOKEN;
+    const GEMINI_KEY = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
-  if (!HF_TOKEN && !GEMINI_KEY) {
-    return res.status(500).json({ error: "No AI tokens configured" });
-  }
+    if (!HF_TOKEN && !GEMINI_KEY) {
+      return res.status(500).json({ error: "No AI tokens configured. Set VITE_HF_TOKEN or VITE_GEMINI_API_KEY in Vercel env vars." });
+    }
 
-  const { image, mime, modelId } = req.body;
-  if (!image) {
-    return res.status(400).json({ error: "No image provided" });
-  }
+    // Vercel auto-parses JSON body, but handle both cases
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const { image, mime, modelId } = body || {};
+    if (!image) {
+      return res.status(400).json({ error: "No image provided", receivedKeys: Object.keys(body || {}) });
+    }
 
-  const imageBytes = Buffer.from(image, "base64");
+    const imageBytes = Buffer.from(image, "base64");
 
   // --- Google route ---
   if (modelId?.startsWith("google/") && GEMINI_KEY) {
@@ -97,6 +100,13 @@ module.exports = async function handler(req, res) {
     name: "Analysis Unavailable",
     description: "All AI models failed. Try again later.",
   });
+  } catch (e) {
+    console.error("analyze handler crash:", e);
+    return res.status(500).json({
+      name: "Server Error",
+      description: `Internal error: ${e.message?.slice(0, 100) || "Unknown"}`,
+    });
+  }
 }
 
 async function geminiAnalyze(res, base64, mime, key) {
