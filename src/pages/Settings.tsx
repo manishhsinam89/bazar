@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Layout from "../components/Layout";
 import { useLanguage } from "../lib/useLanguage";
 import { useCurrency } from "../lib/useCurrency";
@@ -8,6 +9,39 @@ export default function Settings() {
   const { currency, setCurrency } = useCurrency();
   const [tryon, setTryon] = useSetting<boolean>(SETTING_TRYON_ENABLED, false);
   const [autoClean, setAutoClean] = useSetting<boolean>(SETTING_AUTO_CLEAN, true);
+  const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem("ollama_url") || "");
+  const [ollamaStatus, setOllamaStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+
+  const saveOllamaUrl = (url: string) => {
+    const trimmed = url.trim().replace(/\/+$/, "");
+    setOllamaUrl(trimmed);
+    if (trimmed) {
+      localStorage.setItem("ollama_url", trimmed);
+    } else {
+      localStorage.removeItem("ollama_url");
+    }
+  };
+
+  const testOllama = async () => {
+    const url = ollamaUrl.trim() || "http://localhost:11434";
+    setOllamaStatus("testing");
+    try {
+      const res = await fetch(`${url}/api/tags`, { method: "GET" });
+      if (res.ok) {
+        const data = await res.json();
+        const hasLlava = data.models?.some((m: any) => m.name?.includes("llava"));
+        setOllamaStatus("ok");
+        alert(hasLlava
+          ? `✅ Connected! LLaVA model found. ${data.models.length} model(s) available.`
+          : `⚠️ Connected but no LLaVA model found. Run: ollama pull llava`);
+      } else {
+        setOllamaStatus("fail");
+      }
+    } catch {
+      setOllamaStatus("fail");
+      alert("❌ Cannot reach Ollama. Check the URL and make sure Ollama is running.");
+    }
+  };
 
   return (
     <Layout lang={lang} onLangChange={setLang} currency={currency} onCurrencyChange={setCurrency}>
@@ -33,6 +67,42 @@ export default function Settings() {
           onChange={setTryon}
           experimental
         />
+
+        {/* Ollama URL config */}
+        <div style={{
+          background: "var(--card)", border: "1.5px solid var(--border)",
+          borderRadius: 12, padding: "14px 16px", marginTop: 12, marginBottom: 12,
+        }}>
+          <strong style={{ fontSize: "0.92rem", color: "var(--ink)" }}>🏠 Ollama Server URL</strong>
+          <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>
+            To use local AI from any device, run <code>ngrok http 11434</code> on your PC and paste the ngrok URL here.
+            Leave blank for <code>http://localhost:11434</code>.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <input
+              type="url"
+              value={ollamaUrl}
+              onChange={e => saveOllamaUrl(e.target.value)}
+              placeholder="https://abc123.ngrok-free.app"
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 8,
+                border: "1.5px solid var(--border)", fontSize: "0.82rem",
+                fontFamily: "monospace", background: "#faf6ef",
+              }}
+            />
+            <button
+              onClick={testOllama}
+              disabled={ollamaStatus === "testing"}
+              style={{
+                padding: "8px 14px", borderRadius: 8, border: "none",
+                background: ollamaStatus === "ok" ? "#2e7d32" : ollamaStatus === "fail" ? "#c62828" : "var(--saffron)",
+                color: "#fff", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer",
+              }}
+            >
+              {ollamaStatus === "testing" ? "..." : ollamaStatus === "ok" ? "✓ OK" : "Test"}
+            </button>
+          </div>
+        </div>
 
         <div style={{
           marginTop: 24, padding: "12px 14px",
