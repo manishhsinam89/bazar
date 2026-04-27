@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const ADMIN_PASSWORD = "bazar2024"; // You can change this password
+const ADMIN_PASSWORD = "DropBazar2026"; // You can change this password
 const AUTH_KEY = "bazar_admin_auth";
 
 export function useAdminAuth() {
