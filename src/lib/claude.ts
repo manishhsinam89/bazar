@@ -1,3 +1,5 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
 export interface AnalyzedProduct {
   name: string;
   description: string;
@@ -8,6 +10,31 @@ export interface AnalyzedProduct {
 }
 
 export async function analyzeProduct(
+  // Option 0: Use Google Gemini (FREE & Recommended)
+  const geminiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      const result = await model.generateContent([
+        "Analyze this product and provide details in this exact order: Name, Description, Category, Dimensions, Price in INR. Be professional.",
+        {
+          inlineData: {
+            data: base64,
+            mimeType: mime,
+          },
+        },
+      ]);
+
+      const text = result.response.text();
+      // This uses your existing helper to turn the text into the product format
+      return parseAnalysis(text, lang);
+    } catch (err) {
+      console.warn("Gemini failed, trying other options", err);
+    }
+  }
+
   base64: string,
   mime: string,
   lang: string
