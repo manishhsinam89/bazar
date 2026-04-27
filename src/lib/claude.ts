@@ -24,6 +24,7 @@ const HF_MODELS = [
 ];
 
 async function hfImageToText(token: string, imageBytes: Uint8Array, models?: string[]): Promise<string> {
+  const blob = new Blob([imageBytes.buffer as ArrayBuffer]);
   for (const model of (models ?? HF_MODELS)) {
     try {
       const res = await fetch(
@@ -31,7 +32,7 @@ async function hfImageToText(token: string, imageBytes: Uint8Array, models?: str
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
-          body: imageBytes,
+          body: blob,
         }
       );
       if (res.status === 503) {
@@ -41,7 +42,7 @@ async function hfImageToText(token: string, imageBytes: Uint8Array, models?: str
         await new Promise(r => setTimeout(r, wait));
         const retry = await fetch(
           `https://api-inference.huggingface.co/models/${model}`,
-          { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: imageBytes }
+          { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: blob }
         );
         if (retry.ok) {
           const data = await retry.json();
