@@ -30,9 +30,11 @@ export default async function handler(req, res) {
       "nlpconnect/vit-gpt2-image-captioning",
     ];
     const models = modelId && !modelId.startsWith("google/") ? [modelId] : HF_MODELS;
+    let lastHfError = "";
 
     for (const model of models) {
       try {
+        console.log(`Trying HF model: ${model}`);
         const hfRes = await fetch(
           `https://api-inference.huggingface.co/models/${model}`,
           {
@@ -46,32 +48,47 @@ export default async function handler(req, res) {
         );
 
         if (!hfRes.ok) {
-          console.warn(`HF ${model}: ${hfRes.status}`);
+          const errText = await hfRes.text().catch(() => "");
+          lastHfError = `${model}: HTTP ${hfRes.status} - ${errText.slice(0, 150)}`;
+          console.warn("HF error:", lastHfError);
           continue;
         }
 
         const data = await hfRes.json();
+        console.log(`HF ${model} response:`, JSON.stringify(data).slice(0, 300));
         let caption = "";
         if (Array.isArray(data) && data[0]?.generated_text) {
           caption = data[0].generated_text;
         } else if (data?.generated_text) {
           caption = data.generated_text;
         } else if (data?.error) {
-          console.warn(`HF ${model} error:`, data.error);
+          lastHfError = `${model}: ${data.error}`;
+          console.warn("HF model error:", lastHfError);
           continue;
         }
 
         if (caption) {
+          console.log(`HF success: ${model} -> "${caption.slice(0, 80)}"`);
           return res.status(200).json(parseCaption(caption));
         }
+        lastHfError = `${model}: no caption in response`;
       } catch (e) {
+        lastHfError = `${model}: ${e.message}`;
         console.warn(`HF ${model} fetch error:`, e.message);
         continue;
       }
     }
+
+    // Don't fall through to Gemini silently — return HF error
+    if (!modelId?.startsWith("google/")) {
+      return res.status(502).json({
+        name: "HF Analysis Failed",
+        description: `HF error: ${lastHfError}. Try selecting Gemini from the dropdown, or retry in 30s.`,
+      });
+    }
   }
 
-  // --- Gemini fallback ---
+  // --- Gemini fallback (only if explicitly chosen or no HF token) ---
   if (GEMINI_KEY) {
     return await geminiAnalyze(res, image, mime, GEMINI_KEY);
   }
