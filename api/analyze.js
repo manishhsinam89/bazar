@@ -1,5 +1,8 @@
 export const config = { runtime: "edge" };
 
+// New HF Inference Providers API (router.huggingface.co)
+// Old api-inference.huggingface.co is deprecated/dead as of 2025+
+
 const HF_MODELS = [
   "Salesforce/blip-image-captioning-large",
   "Salesforce/blip-image-captioning-base",
@@ -28,43 +31,39 @@ export default async function handler(request) {
     const HF_TOKEN = process.env.VITE_HF_TOKEN || process.env.HF_TOKEN;
     const GEMINI_KEY = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
-    if (!HF_TOKEN && !GEMINI_KEY) {
-      return Response.json({ error: "No AI tokens configured" }, { status: 500 });
-    }
-
-    const binaryStr = atob(image);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-
     // --- Google route ---
     if (modelId?.startsWith("google/") && GEMINI_KEY) {
       return geminiAnalyze(image, mime, GEMINI_KEY);
     }
 
-    // --- HF route ---
+    // --- HF route via new router API ---
     if (HF_TOKEN) {
       const models = modelId && !modelId.startsWith("google/") ? [modelId] : HF_MODELS;
       let lastErr = "";
 
       for (const model of models) {
         try {
-          const url = `https://api-inference.huggingface.co/models/${model}`;
+          // New HF Inference Providers endpoint
+          const url = `https://router.huggingface.co/hf-inference/models/${model}`;
           console.log("HF request:", url);
+
+          const binaryStr = atob(image);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
 
           const hfRes = await fetch(url, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${HF_TOKEN}`,
-              "x-wait-for-model": "true",
             },
             body: bytes,
           });
 
           const bodyText = await hfRes.text();
-          console.log(`HF ${model}: ${hfRes.status} ${bodyText.slice(0, 200)}`);
+          console.log(`HF ${model}: ${hfRes.status} ${bodyText.slice(0, 300)}`);
 
           if (hfRes.status !== 200) {
-            lastErr = `${model}: ${hfRes.status} ${bodyText.slice(0, 100)}`;
+            lastErr = `${model}: ${hfRes.status} ${bodyText.slice(0, 120)}`;
             continue;
           }
 
@@ -77,14 +76,20 @@ export default async function handler(request) {
             lastErr = `${model}: ${data.error}`;
             continue;
           }
-          lastErr = `${model}: no caption`;
+          lastErr = `${model}: no caption in response`;
         } catch (e) {
           lastErr = `${model}: ${e.message}`;
+          console.warn(`HF ${model} error:`, e.message);
           continue;
         }
       }
 
       if (!modelId?.startsWith("google/")) {
+        // If HF failed, try Gemini as fallback
+        if (GEMINI_KEY) {
+          console.log("HF failed, trying Gemini fallback. Last HF error:", lastErr);
+          return geminiAnalyze(image, mime, GEMINI_KEY);
+        }
         return Response.json({
           name: "HF Analysis Failed",
           description: `${lastErr}. Try Gemini or retry in 30s.`,
@@ -93,10 +98,10 @@ export default async function handler(request) {
       }
     }
 
-    // Gemini fallback
+    // Gemini direct
     if (GEMINI_KEY) return geminiAnalyze(image, mime, GEMINI_KEY);
 
-    return Response.json({ name: "No AI", description: "Configure tokens" }, { status: 500 });
+    return Response.json({ name: "No AI", description: "Configure HF_TOKEN or GEMINI_API_KEY" }, { status: 500 });
 
   } catch (e) {
     return Response.json({
