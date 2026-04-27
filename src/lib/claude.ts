@@ -25,40 +25,26 @@ const HF_MODELS = [
 
 async function hfImageToText(token: string, imageBytes: Uint8Array, models?: string[]): Promise<string> {
   const blob = new Blob([imageBytes.buffer as ArrayBuffer]);
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "x-wait-for-model": "true",          // tells HF to wait for cold models instead of 503
+  };
   for (const model of (models ?? HF_MODELS)) {
     try {
       const res = await fetch(
         `https://api-inference.huggingface.co/models/${model}`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: blob,
-        }
+        { method: "POST", headers, body: blob }
       );
-      if (res.status === 503) {
-        // Model is loading – wait and retry up to 2 times
-        const info = await res.json().catch(() => ({}));
-        const wait = Math.min((info.estimated_time ?? 20) * 1000, 45000);
-        for (let attempt = 0; attempt < 2; attempt++) {
-          await new Promise(r => setTimeout(r, wait));
-          const retry = await fetch(
-            `https://api-inference.huggingface.co/models/${model}`,
-            { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: blob }
-          );
-          if (retry.ok) {
-            const data = await retry.json();
-            const caption = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
-            if (caption) return caption;
-          }
-          if (retry.status !== 503) break;
-        }
+      if (!res.ok) {
+        // Log for debugging, skip to next model
+        console.warn(`HF ${model}: ${res.status} ${await res.text().catch(() => "")}`);
         continue;
       }
-      if (!res.ok) continue;
       const data = await res.json();
       const caption = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
       if (caption) return caption;
-    } catch {
+    } catch (e: any) {
+      console.warn(`HF ${model} fetch error:`, e.message);
       continue;
     }
   }
